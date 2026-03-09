@@ -12,7 +12,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Shield, User, Zap } from "lucide-react";
+import { Shield, User, Zap, Plus } from "lucide-react";
 import { cn, agentUrl } from "../lib/utils";
 import { roleLabels } from "../components/agent-config-primitives";
 import { AgentIcon } from "../components/AgentIconPicker";
@@ -20,12 +20,15 @@ import { AgentIcon } from "../components/AgentIconPicker";
 const inputClass =
   "w-full rounded-md border border-border px-2.5 py-1.5 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/40";
 
+type AgentSource = "existing" | "new";
+
 export function NewAgent() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
+  const [agentSource, setAgentSource] = useState<AgentSource>("existing");
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [role, setRole] = useState("general");
@@ -34,6 +37,7 @@ export function NewAgent() {
   const [reportsToOpen, setReportsToOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [starflaskAgentId, setStarflaskAgentId] = useState("");
+  const [newAgentName, setNewAgentName] = useState("");
   const [personaName, setPersonaName] = useState("");
 
   // Fetch Starflask agents using stored credentials (proxied through server)
@@ -85,12 +89,30 @@ export function NewAgent() {
     }
   }, [starflaskAgentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Create a new agent on Starflask, then use its ID
+  const createStarflaskAgent = useMutation({
+    mutationFn: async (agentName: string) => {
+      const res = await fetch("/api/starflask-agents", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: agentName }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error ?? `Failed to create agent (${res.status})`);
+      }
+      return res.json() as Promise<{ id: string; name: string }>;
+    },
+  });
+
   const createAgent = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
       agentsApi.hire(selectedCompanyId!, data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(selectedCompanyId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.approvals.list(selectedCompanyId!) });
+      queryClient.invalidateQueries({ queryKey: ["starflask-agents"] });
       navigate(agentUrl(result.agent));
     },
     onError: (error) => {
@@ -98,11 +120,24 @@ export function NewAgent() {
     },
   });
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!selectedCompanyId || !name.trim()) return;
     setFormError(null);
 
-    if (!starflaskAgentId.trim()) { setFormError("Select a Starflask agent"); return; }
+    let agentId = starflaskAgentId.trim();
+
+    if (agentSource === "new") {
+      if (!newAgentName.trim()) { setFormError("Enter a name for the new Starflask agent"); return; }
+      try {
+        const created = await createStarflaskAgent.mutateAsync(newAgentName.trim());
+        agentId = created.id;
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : "Failed to create Starflask agent");
+        return;
+      }
+    } else {
+      if (!agentId) { setFormError("Select a Starflask agent"); return; }
+    }
 
     createAgent.mutate({
       name: name.trim(),
@@ -111,7 +146,7 @@ export function NewAgent() {
       ...(reportsTo ? { reportsTo } : {}),
       adapterType: "starflask",
       adapterConfig: {
-        starflaskAgentId: starflaskAgentId.trim(),
+        starflaskAgentId: agentId,
         ...(personaName.trim() ? { personaName: personaName.trim() } : {}),
       },
       runtimeConfig: {
@@ -127,6 +162,7 @@ export function NewAgent() {
     });
   }
 
+  const isPending = createAgent.isPending || createStarflaskAgent.isPending;
   const currentReportsTo = (agents ?? []).find((a) => a.id === reportsTo);
 
   return (
@@ -135,60 +171,116 @@ export function NewAgent() {
         <h1 className="text-lg font-semibold">
           <span className="inline-flex items-center gap-2">
             <Zap className="h-5 w-5 text-cyan-500" />
-            Connect Starflask Agent
+            Add Agent
           </span>
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Link an agent from your Starflask backend to this organization.
+          Connect an existing Starflask agent or create a new one.
         </p>
       </div>
 
       <div className="border border-border">
-        {/* Agent Selector */}
-        <div className="border-b border-border">
-          <div className="px-4 py-3 border-b border-border">
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              Starflask Agent
-            </label>
-            {starflaskAgents && starflaskAgents.length > 0 ? (
-              <div className="space-y-1">
-                {starflaskAgents.map((a) => (
-                  <button
-                    key={a.id}
-                    className={cn(
-                      "flex items-start gap-3 w-full text-left px-3 py-2.5 rounded-md border transition-colors",
-                      starflaskAgentId === a.id
-                        ? "border-cyan-500 bg-cyan-500/5"
-                        : "border-border hover:bg-accent/50"
-                    )}
-                    onClick={() => setStarflaskAgentId(a.id)}
-                  >
-                    <Zap className={cn(
-                      "h-4 w-4 mt-0.5 shrink-0",
-                      starflaskAgentId === a.id ? "text-cyan-500" : "text-muted-foreground"
-                    )} />
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{a.name}</div>
-                      {a.description && (
-                        <div className="text-xs text-muted-foreground truncate mt-0.5">
-                          {a.description}
-                        </div>
-                      )}
-                      <div className="text-[10px] text-muted-foreground/50 font-mono mt-0.5">
-                        {a.id}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : starflaskAgentsLoading ? (
-              <p className="text-xs text-muted-foreground">Loading agents...</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                No agents found. Check your Starflask account.
-              </p>
+        {/* Source toggle */}
+        <div className="flex border-b border-border">
+          <button
+            className={cn(
+              "flex-1 px-4 py-2.5 text-xs font-medium transition-colors",
+              agentSource === "existing"
+                ? "bg-accent/50 text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/25"
             )}
-          </div>
+            onClick={() => setAgentSource("existing")}
+          >
+            Use Existing Agent
+          </button>
+          <button
+            className={cn(
+              "flex-1 px-4 py-2.5 text-xs font-medium transition-colors border-l border-border",
+              agentSource === "new"
+                ? "bg-accent/50 text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/25"
+            )}
+            onClick={() => setAgentSource("new")}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <Plus className="h-3 w-3" />
+              Create New Agent
+            </span>
+          </button>
+        </div>
+
+        <div className="border-b border-border">
+          {agentSource === "existing" ? (
+            <>
+              {/* Agent Selector */}
+              <div className="px-4 py-3 border-b border-border">
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  Starflask Agent
+                </label>
+                {starflaskAgents && starflaskAgents.length > 0 ? (
+                  <div className="space-y-1">
+                    {starflaskAgents.map((a) => (
+                      <button
+                        key={a.id}
+                        className={cn(
+                          "flex items-start gap-3 w-full text-left px-3 py-2.5 rounded-md border transition-colors",
+                          starflaskAgentId === a.id
+                            ? "border-cyan-500 bg-cyan-500/5"
+                            : "border-border hover:bg-accent/50"
+                        )}
+                        onClick={() => setStarflaskAgentId(a.id)}
+                      >
+                        <Zap className={cn(
+                          "h-4 w-4 mt-0.5 shrink-0",
+                          starflaskAgentId === a.id ? "text-cyan-500" : "text-muted-foreground"
+                        )} />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">{a.name}</div>
+                          {a.description && (
+                            <div className="text-xs text-muted-foreground truncate mt-0.5">
+                              {a.description}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-muted-foreground/50 font-mono mt-0.5">
+                            {a.id}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : starflaskAgentsLoading ? (
+                  <p className="text-xs text-muted-foreground">Loading agents...</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No agents found. Try creating a new one instead.
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Create new agent */}
+              <div className="px-4 py-3 border-b border-border">
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                  New Agent Name
+                </label>
+                <input
+                  className={inputClass}
+                  placeholder="e.g. my-worker"
+                  value={newAgentName}
+                  onChange={(e) => {
+                    setNewAgentName(e.target.value);
+                    if (!name || name === newAgentName) setName(e.target.value);
+                  }}
+                  autoFocus
+                  maxLength={32}
+                />
+                <p className="text-[10px] text-muted-foreground/60 mt-1">
+                  A new agent will be created on Starflask with this name.
+                </p>
+              </div>
+            </>
+          )}
 
           {/* Persona (optional) */}
           <div className="px-4 py-3">
@@ -322,10 +414,14 @@ export function NewAgent() {
             </Button>
             <Button
               size="sm"
-              disabled={!name.trim() || createAgent.isPending}
+              disabled={!name.trim() || isPending}
               onClick={handleSubmit}
             >
-              {createAgent.isPending ? "Creating…" : "Connect agent"}
+              {isPending
+                ? "Creating…"
+                : agentSource === "new"
+                  ? "Create & connect agent"
+                  : "Connect agent"}
             </Button>
           </div>
         </div>

@@ -132,6 +132,34 @@ export async function createApp(
     }
   });
 
+  // Create a new agent on Starflask
+  app.post("/api/starflask-agents", async (req, res) => {
+    const creds = loadStarflaskCredentials();
+    if (!creds) {
+      res.status(401).json({ error: "Starflask not configured" });
+      return;
+    }
+    try {
+      const upstream = await fetch(`${creds.apiUrl}/agents`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${creds.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(req.body),
+      });
+      if (!upstream.ok) {
+        const body = await upstream.text().catch(() => "");
+        res.status(upstream.status).json({ error: body || `Starflask API error (${upstream.status})` });
+        return;
+      }
+      const data = await upstream.json();
+      res.json(data);
+    } catch (err) {
+      res.status(502).json({ error: `Could not reach Starflask API: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+
   app.post("/api/starflask-config/logout", (_req, res) => {
     saveStarflaskCredentials({ apiUrl: "", apiKey: "" });
     res.json({ ok: true });
