@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Paperclip",
-  "short_name": "Paperclip",
-  "description": "AI-powered project management and agent coordination platform",
+  "name": "Starflask",
+  "short_name": "Starflask",
+  "description": "AI agent orchestration powered by Starflask",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

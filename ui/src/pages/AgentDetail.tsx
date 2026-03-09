@@ -2509,7 +2509,7 @@ function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }
           Create API Key
         </h3>
         <p className="text-xs text-muted-foreground">
-          API keys allow this agent to authenticate calls to the Paperclip server.
+          API keys allow this agent to authenticate calls to the Starflask server.
         </p>
         <div className="flex items-center gap-2">
           <Input
