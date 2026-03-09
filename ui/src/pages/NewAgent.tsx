@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "@/lib/router";
+import { useNavigate } from "@/lib/router";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { agentsApi } from "../api/agents";
@@ -15,42 +15,7 @@ import {
 import { Shield, User, Zap } from "lucide-react";
 import { cn, agentUrl } from "../lib/utils";
 import { roleLabels } from "../components/agent-config-primitives";
-import { AgentConfigForm, type CreateConfigValues } from "../components/AgentConfigForm";
-import { defaultCreateValues } from "../components/agent-config-defaults";
-import { getUIAdapter } from "../adapters";
 import { AgentIcon } from "../components/AgentIconPicker";
-import {
-  DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
-  DEFAULT_CODEX_LOCAL_MODEL,
-} from "@paperclipai/adapter-codex-local";
-import { DEFAULT_CURSOR_LOCAL_MODEL } from "@paperclipai/adapter-cursor-local";
-
-const SUPPORTED_ADAPTER_TYPES = new Set<string>([
-  "starflask",
-  "claude_local",
-  "codex_local",
-  "opencode_local",
-  "pi_local",
-  "cursor",
-  "openclaw_gateway",
-]);
-
-function createValuesForAdapterType(
-  adapterType: CreateConfigValues["adapterType"],
-): CreateConfigValues {
-  const { adapterType: _discard, ...defaults } = defaultCreateValues;
-  const nextValues: CreateConfigValues = { ...defaults, adapterType };
-  if (adapterType === "codex_local") {
-    nextValues.model = DEFAULT_CODEX_LOCAL_MODEL;
-    nextValues.dangerouslyBypassSandbox =
-      DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX;
-  } else if (adapterType === "cursor") {
-    nextValues.model = DEFAULT_CURSOR_LOCAL_MODEL;
-  } else if (adapterType === "opencode_local") {
-    nextValues.model = "";
-  }
-  return nextValues;
-}
 
 const inputClass =
   "w-full rounded-md border border-border px-2.5 py-1.5 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/40";
@@ -60,20 +25,16 @@ export function NewAgent() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const presetAdapterType = searchParams.get("adapterType");
-  const isStarflask = presetAdapterType === "starflask";
 
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [role, setRole] = useState("general");
   const [reportsTo, setReportsTo] = useState("");
-  const [configValues, setConfigValues] = useState<CreateConfigValues>(defaultCreateValues);
   const [roleOpen, setRoleOpen] = useState(false);
   const [reportsToOpen, setReportsToOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Starflask-specific fields
+  // Starflask fields
   const [starflaskApiUrl, setStarflaskApiUrl] = useState("https://starflask.com/api");
   const [starflaskApiKey, setStarflaskApiKey] = useState("");
   const [starflaskAgentId, setStarflaskAgentId] = useState("");
@@ -92,7 +53,7 @@ export function NewAgent() {
       if (!res.ok) throw new Error(`Failed to fetch agents (${res.status})`);
       return res.json() as Promise<Array<{ id: string; name: string; description?: string }>>;
     },
-    enabled: isStarflask && starflaskApiKey.length > 8,
+    enabled: starflaskApiKey.length > 8,
     retry: false,
   });
 
@@ -100,19 +61,6 @@ export function NewAgent() {
     queryKey: queryKeys.agents.list(selectedCompanyId!),
     queryFn: () => agentsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
-  });
-
-  const {
-    data: adapterModels,
-    error: adapterModelsError,
-    isLoading: adapterModelsLoading,
-    isFetching: adapterModelsFetching,
-  } = useQuery({
-    queryKey: selectedCompanyId
-      ? queryKeys.agents.adapterModels(selectedCompanyId, configValues.adapterType)
-      : ["agents", "none", "adapter-models", configValues.adapterType],
-    queryFn: () => agentsApi.adapterModels(selectedCompanyId!, configValues.adapterType),
-    enabled: Boolean(selectedCompanyId) && !isStarflask,
   });
 
   const isFirstAgent = !agents || agents.length === 0;
@@ -132,19 +80,9 @@ export function NewAgent() {
     }
   }, [isFirstAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    const requested = presetAdapterType;
-    if (!requested || requested === "starflask") return;
-    if (!SUPPORTED_ADAPTER_TYPES.has(requested)) return;
-    setConfigValues((prev) => {
-      if (prev.adapterType === requested) return prev;
-      return createValuesForAdapterType(requested as CreateConfigValues["adapterType"]);
-    });
-  }, [presetAdapterType]);
-
   // Auto-fill name when a Starflask agent is selected
   useEffect(() => {
-    if (!isStarflask || !starflaskAgentId || !starflaskAgents) return;
+    if (!starflaskAgentId || !starflaskAgents) return;
     const selected = starflaskAgents.find((a) => a.id === starflaskAgentId);
     if (selected && !name) {
       setName(selected.name);
@@ -168,79 +106,26 @@ export function NewAgent() {
     if (!selectedCompanyId || !name.trim()) return;
     setFormError(null);
 
-    if (isStarflask) {
-      if (!starflaskApiUrl.trim()) { setFormError("Starflask API URL is required"); return; }
-      if (!starflaskApiKey.trim()) { setFormError("Starflask API key is required"); return; }
-      if (!starflaskAgentId.trim()) { setFormError("Select a Starflask agent"); return; }
+    if (!starflaskApiUrl.trim()) { setFormError("Starflask API URL is required"); return; }
+    if (!starflaskApiKey.trim()) { setFormError("Starflask API key is required"); return; }
+    if (!starflaskAgentId.trim()) { setFormError("Select a Starflask agent"); return; }
 
-      createAgent.mutate({
-        name: name.trim(),
-        role: effectiveRole,
-        ...(title.trim() ? { title: title.trim() } : {}),
-        ...(reportsTo ? { reportsTo } : {}),
-        adapterType: "starflask",
-        adapterConfig: {
-          starflaskApiUrl: starflaskApiUrl.trim(),
-          starflaskApiKey: starflaskApiKey.trim(),
-          starflaskAgentId: starflaskAgentId.trim(),
-          ...(personaName.trim() ? { personaName: personaName.trim() } : {}),
-        },
-        runtimeConfig: {
-          heartbeat: {
-            enabled: false,
-            intervalSec: 300,
-            wakeOnDemand: true,
-            cooldownSec: 10,
-            maxConcurrentRuns: 1,
-          },
-        },
-        budgetMonthlyCents: 0,
-      });
-      return;
-    }
-
-    // Non-starflask adapters — existing logic
-    if (configValues.adapterType === "opencode_local") {
-      const selectedModel = configValues.model.trim();
-      if (!selectedModel) {
-        setFormError("OpenCode requires an explicit model in provider/model format.");
-        return;
-      }
-      if (adapterModelsError) {
-        setFormError(
-          adapterModelsError instanceof Error
-            ? adapterModelsError.message
-            : "Failed to load OpenCode models.",
-        );
-        return;
-      }
-      if (adapterModelsLoading || adapterModelsFetching) {
-        setFormError("OpenCode models are still loading. Please wait and try again.");
-        return;
-      }
-      const discovered = adapterModels ?? [];
-      if (!discovered.some((entry) => entry.id === selectedModel)) {
-        setFormError(
-          discovered.length === 0
-            ? "No OpenCode models discovered. Run `opencode models` and authenticate providers."
-            : `Configured OpenCode model is unavailable: ${selectedModel}`,
-        );
-        return;
-      }
-    }
-
-    const adapter = getUIAdapter(configValues.adapterType);
     createAgent.mutate({
       name: name.trim(),
       role: effectiveRole,
       ...(title.trim() ? { title: title.trim() } : {}),
       ...(reportsTo ? { reportsTo } : {}),
-      adapterType: configValues.adapterType,
-      adapterConfig: adapter.buildAdapterConfig(configValues),
+      adapterType: "starflask",
+      adapterConfig: {
+        starflaskApiUrl: starflaskApiUrl.trim(),
+        starflaskApiKey: starflaskApiKey.trim(),
+        starflaskAgentId: starflaskAgentId.trim(),
+        ...(personaName.trim() ? { personaName: personaName.trim() } : {}),
+      },
       runtimeConfig: {
         heartbeat: {
-          enabled: configValues.heartbeatEnabled,
-          intervalSec: configValues.intervalSec,
+          enabled: false,
+          intervalSec: 300,
           wakeOnDemand: true,
           cooldownSec: 10,
           maxConcurrentRuns: 1,
@@ -256,122 +141,115 @@ export function NewAgent() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <h1 className="text-lg font-semibold">
-          {isStarflask ? (
-            <span className="inline-flex items-center gap-2">
-              <Zap className="h-5 w-5 text-cyan-500" />
-              Connect Starflask Agent
-            </span>
-          ) : (
-            "New Agent"
-          )}
+          <span className="inline-flex items-center gap-2">
+            <Zap className="h-5 w-5 text-cyan-500" />
+            Connect Starflask Agent
+          </span>
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {isStarflask
-            ? "Link an agent from your Starflask backend to this organization."
-            : "Advanced agent configuration"}
+          Link an agent from your Starflask backend to this organization.
         </p>
       </div>
 
       <div className="border border-border">
         {/* Starflask config */}
-        {isStarflask && (
-          <div className="border-b border-border">
-            {/* API URL */}
-            <div className="px-4 py-3 border-b border-border">
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                Starflask API URL
-              </label>
-              <input
-                className={inputClass}
-                placeholder="https://starflask.com/api"
-                value={starflaskApiUrl}
-                onChange={(e) => setStarflaskApiUrl(e.target.value)}
-              />
-            </div>
-
-            {/* API Key */}
-            <div className="px-4 py-3 border-b border-border">
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                API Key
-              </label>
-              <input
-                className={inputClass}
-                type="password"
-                placeholder="sk_..."
-                value={starflaskApiKey}
-                onChange={(e) => setStarflaskApiKey(e.target.value)}
-              />
-              <p className="text-[10px] text-muted-foreground/60 mt-1">
-                Your Starflask user API key. Find it in your Starflask dashboard settings.
-              </p>
-            </div>
-
-            {/* Agent Selector */}
-            <div className="px-4 py-3 border-b border-border">
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                Starflask Agent
-              </label>
-              {starflaskAgents && starflaskAgents.length > 0 ? (
-                <div className="space-y-1">
-                  {starflaskAgents.map((a) => (
-                    <button
-                      key={a.id}
-                      className={cn(
-                        "flex items-start gap-3 w-full text-left px-3 py-2.5 rounded-md border transition-colors",
-                        starflaskAgentId === a.id
-                          ? "border-cyan-500 bg-cyan-500/5"
-                          : "border-border hover:bg-accent/50"
-                      )}
-                      onClick={() => setStarflaskAgentId(a.id)}
-                    >
-                      <Zap className={cn(
-                        "h-4 w-4 mt-0.5 shrink-0",
-                        starflaskAgentId === a.id ? "text-cyan-500" : "text-muted-foreground"
-                      )} />
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium truncate">{a.name}</div>
-                        {a.description && (
-                          <div className="text-xs text-muted-foreground truncate mt-0.5">
-                            {a.description}
-                          </div>
-                        )}
-                        <div className="text-[10px] text-muted-foreground/50 font-mono mt-0.5">
-                          {a.id}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : starflaskAgentsLoading ? (
-                <p className="text-xs text-muted-foreground">Loading agents...</p>
-              ) : starflaskApiKey.length > 8 ? (
-                <p className="text-xs text-muted-foreground">
-                  No agents found. Check your API key and URL.
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Enter your API key above to see available agents.
-                </p>
-              )}
-            </div>
-
-            {/* Persona (optional) */}
-            <div className="px-4 py-3">
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                Persona <span className="text-muted-foreground/50">(optional)</span>
-              </label>
-              <input
-                className={inputClass}
-                placeholder="e.g. worker, manager, analyst"
-                value={personaName}
-                onChange={(e) => setPersonaName(e.target.value)}
-              />
-              <p className="text-[10px] text-muted-foreground/60 mt-1">
-                Axoniac persona to use when this agent runs heartbeats. Leave blank for default.
-              </p>
-            </div>
+        <div className="border-b border-border">
+          {/* API URL */}
+          <div className="px-4 py-3 border-b border-border">
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Starflask API URL
+            </label>
+            <input
+              className={inputClass}
+              placeholder="https://starflask.com/api"
+              value={starflaskApiUrl}
+              onChange={(e) => setStarflaskApiUrl(e.target.value)}
+              autoFocus
+            />
           </div>
-        )}
+
+          {/* API Key */}
+          <div className="px-4 py-3 border-b border-border">
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              API Key
+            </label>
+            <input
+              className={inputClass}
+              type="password"
+              placeholder="sk_..."
+              value={starflaskApiKey}
+              onChange={(e) => setStarflaskApiKey(e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground/60 mt-1">
+              Your Starflask user API key. Find it in your Starflask dashboard settings.
+            </p>
+          </div>
+
+          {/* Agent Selector */}
+          <div className="px-4 py-3 border-b border-border">
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Starflask Agent
+            </label>
+            {starflaskAgents && starflaskAgents.length > 0 ? (
+              <div className="space-y-1">
+                {starflaskAgents.map((a) => (
+                  <button
+                    key={a.id}
+                    className={cn(
+                      "flex items-start gap-3 w-full text-left px-3 py-2.5 rounded-md border transition-colors",
+                      starflaskAgentId === a.id
+                        ? "border-cyan-500 bg-cyan-500/5"
+                        : "border-border hover:bg-accent/50"
+                    )}
+                    onClick={() => setStarflaskAgentId(a.id)}
+                  >
+                    <Zap className={cn(
+                      "h-4 w-4 mt-0.5 shrink-0",
+                      starflaskAgentId === a.id ? "text-cyan-500" : "text-muted-foreground"
+                    )} />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{a.name}</div>
+                      {a.description && (
+                        <div className="text-xs text-muted-foreground truncate mt-0.5">
+                          {a.description}
+                        </div>
+                      )}
+                      <div className="text-[10px] text-muted-foreground/50 font-mono mt-0.5">
+                        {a.id}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : starflaskAgentsLoading ? (
+              <p className="text-xs text-muted-foreground">Loading agents...</p>
+            ) : starflaskApiKey.length > 8 ? (
+              <p className="text-xs text-muted-foreground">
+                No agents found. Check your API key and URL.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Enter your API key above to see available agents.
+              </p>
+            )}
+          </div>
+
+          {/* Persona (optional) */}
+          <div className="px-4 py-3">
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+              Persona <span className="text-muted-foreground/50">(optional)</span>
+            </label>
+            <input
+              className={inputClass}
+              placeholder="e.g. worker, manager, analyst"
+              value={personaName}
+              onChange={(e) => setPersonaName(e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground/60 mt-1">
+              Axoniac persona to use when this agent runs heartbeats. Leave blank for default.
+            </p>
+          </div>
+        </div>
 
         {/* Name */}
         <div className="px-4 pt-4 pb-2">
@@ -380,7 +258,6 @@ export function NewAgent() {
             placeholder="Agent name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            autoFocus={!isStarflask}
           />
         </div>
 
@@ -475,16 +352,6 @@ export function NewAgent() {
           </Popover>
         </div>
 
-        {/* Shared config form — only for non-starflask adapters */}
-        {!isStarflask && (
-          <AgentConfigForm
-            mode="create"
-            values={configValues}
-            onChange={(patch) => setConfigValues((prev) => ({ ...prev, ...patch }))}
-            adapterModels={adapterModels}
-          />
-        )}
-
         {/* Footer */}
         <div className="border-t border-border px-4 py-3">
           {isFirstAgent && (
@@ -502,11 +369,7 @@ export function NewAgent() {
               disabled={!name.trim() || createAgent.isPending}
               onClick={handleSubmit}
             >
-              {createAgent.isPending
-                ? "Creating…"
-                : isStarflask
-                  ? "Connect agent"
-                  : "Create agent"}
+              {createAgent.isPending ? "Creating…" : "Connect agent"}
             </Button>
           </div>
         </div>
