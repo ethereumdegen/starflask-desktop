@@ -1,20 +1,22 @@
 import type { AdapterEnvironmentTestContext, AdapterEnvironmentTestResult } from "../types.js";
 // @ts-ignore — starflask ships JS only
 import { Starflask } from "starflask";
+import { loadStarflaskCredentials } from "../../starflask-credentials.js";
 
 export async function testEnvironment(ctx: AdapterEnvironmentTestContext): Promise<AdapterEnvironmentTestResult> {
   const { config } = ctx;
   const checks: AdapterEnvironmentTestResult["checks"] = [];
 
-  const apiUrl = String(config.starflaskApiUrl ?? "");
-  const apiKey = String(config.starflaskApiKey ?? "");
+  const storedCreds = loadStarflaskCredentials();
+  const apiUrl = String(config.starflaskApiUrl ?? storedCreds?.apiUrl ?? "");
+  const apiKey = String(config.starflaskApiKey ?? storedCreds?.apiKey ?? "");
   const agentId = String(config.starflaskAgentId ?? "");
 
   if (!apiUrl) {
     checks.push({ code: "no_url", level: "error", message: "starflaskApiUrl is required" });
   }
   if (!apiKey) {
-    checks.push({ code: "no_key", level: "error", message: "starflaskApiKey is required" });
+    checks.push({ code: "no_key", level: "error", message: "starflaskApiKey is required (configure via Settings or agent config)" });
   }
   if (!agentId) {
     checks.push({ code: "no_agent", level: "error", message: "starflaskAgentId is required" });

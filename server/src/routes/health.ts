@@ -3,6 +3,7 @@ import type { Db } from "@paperclipai/db";
 import { count, sql } from "drizzle-orm";
 import { instanceUserRoles } from "@paperclipai/db";
 import type { DeploymentExposure, DeploymentMode } from "@paperclipai/shared";
+import { loadStarflaskCredentials } from "../starflask-credentials.js";
 
 export function healthRoutes(
   db?: Db,
@@ -36,12 +37,14 @@ export function healthRoutes(
       bootstrapStatus = roleCount > 0 ? "ready" : "bootstrap_pending";
     }
 
+    const starflaskCreds = loadStarflaskCredentials();
     res.json({
       status: "ok",
       deploymentMode: opts.deploymentMode,
       deploymentExposure: opts.deploymentExposure,
       authReady: opts.authReady,
       bootstrapStatus,
+      starflaskConfigured: Boolean(starflaskCreds),
       features: {
         companyDeletionEnabled: opts.companyDeletionEnabled,
       },

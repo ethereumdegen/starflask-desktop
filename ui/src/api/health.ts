@@ -4,6 +4,7 @@ export type HealthStatus = {
   deploymentExposure?: "private" | "public";
   authReady?: boolean;
   bootstrapStatus?: "ready" | "bootstrap_pending";
+  starflaskConfigured?: boolean;
   features?: {
     companyDeletionEnabled?: boolean;
   };

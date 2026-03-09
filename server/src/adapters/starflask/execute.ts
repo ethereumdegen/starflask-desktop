@@ -1,6 +1,7 @@
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../types.js";
 // @ts-ignore — starflask ships JS only
 import { Starflask } from "starflask";
+import { loadStarflaskCredentials } from "../../starflask-credentials.js";
 
 /**
  * Starflask adapter: uses the starflask-cli SDK to fire hook events
@@ -25,8 +26,10 @@ interface StarflaskConfig {
 }
 
 function parseConfig(raw: Record<string, unknown>): StarflaskConfig {
-  const starflaskApiUrl = String(raw.starflaskApiUrl ?? "");
-  const starflaskApiKey = String(raw.starflaskApiKey ?? "");
+  // Fall back to stored instance credentials if not in agent config
+  const storedCreds = loadStarflaskCredentials();
+  const starflaskApiUrl = String(raw.starflaskApiUrl ?? storedCreds?.apiUrl ?? "");
+  const starflaskApiKey = String(raw.starflaskApiKey ?? storedCreds?.apiKey ?? "");
   const starflaskAgentId = String(raw.starflaskAgentId ?? "");
   if (!starflaskApiUrl) throw new Error("Starflask adapter: missing starflaskApiUrl");
   if (!starflaskApiKey) throw new Error("Starflask adapter: missing starflaskApiKey");

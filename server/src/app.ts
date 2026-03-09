@@ -25,6 +25,7 @@ import { llmRoutes } from "./routes/llms.js";
 import { assetRoutes } from "./routes/assets.js";
 import { accessRoutes } from "./routes/access.js";
 import type { BetterAuthSessionResult } from "./auth/better-auth.js";
+import { loadStarflaskCredentials, saveStarflaskCredentials, validateStarflaskApiKey } from "./starflask-credentials.js";
 
 type UiMode = "none" | "static" | "vite-dev";
 
@@ -83,6 +84,57 @@ export async function createApp(
       },
     });
   });
+  // Starflask credentials endpoints
+  app.get("/api/starflask-config", (_req, res) => {
+    const creds = loadStarflaskCredentials();
+    res.json({
+      configured: Boolean(creds),
+      apiUrl: creds?.apiUrl ?? null,
+    });
+  });
+
+  app.post("/api/starflask-config", async (req, res) => {
+    const { apiUrl, apiKey } = req.body as { apiUrl?: string; apiKey?: string };
+    if (!apiUrl?.trim() || !apiKey?.trim()) {
+      res.status(400).json({ error: "apiUrl and apiKey are required" });
+      return;
+    }
+    const result = await validateStarflaskApiKey(apiUrl.trim(), apiKey.trim());
+    if (!result.valid) {
+      res.status(401).json({ error: result.error ?? "Invalid API key" });
+      return;
+    }
+    saveStarflaskCredentials({ apiUrl: apiUrl.trim(), apiKey: apiKey.trim() });
+    res.json({ ok: true, apiUrl: apiUrl.trim() });
+  });
+
+  // Proxy to Starflask API using stored credentials
+  app.get("/api/starflask-agents", async (_req, res) => {
+    const creds = loadStarflaskCredentials();
+    if (!creds) {
+      res.status(401).json({ error: "Starflask not configured" });
+      return;
+    }
+    try {
+      const upstream = await fetch(`${creds.apiUrl}/agents`, {
+        headers: { Authorization: `Bearer ${creds.apiKey}` },
+      });
+      if (!upstream.ok) {
+        res.status(upstream.status).json({ error: `Starflask API error (${upstream.status})` });
+        return;
+      }
+      const data = await upstream.json();
+      res.json(data);
+    } catch (err) {
+      res.status(502).json({ error: `Could not reach Starflask API: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+
+  app.post("/api/starflask-config/logout", (_req, res) => {
+    saveStarflaskCredentials({ apiUrl: "", apiKey: "" });
+    res.json({ ok: true });
+  });
+
   if (opts.betterAuthHandler) {
     app.all("/api/auth/*authPath", opts.betterAuthHandler);
   }

@@ -33,27 +33,23 @@ export function NewAgent() {
   const [roleOpen, setRoleOpen] = useState(false);
   const [reportsToOpen, setReportsToOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  // Starflask fields
-  const [starflaskApiUrl, setStarflaskApiUrl] = useState("https://starflask.com/api");
-  const [starflaskApiKey, setStarflaskApiKey] = useState("");
   const [starflaskAgentId, setStarflaskAgentId] = useState("");
   const [personaName, setPersonaName] = useState("");
 
-  // Fetch Starflask agents when API key is set
+  // Fetch Starflask agents using stored credentials (proxied through server)
   const {
     data: starflaskAgents,
     isLoading: starflaskAgentsLoading,
   } = useQuery({
-    queryKey: ["starflask-agents", starflaskApiUrl, starflaskApiKey],
+    queryKey: ["starflask-agents"],
     queryFn: async () => {
-      const res = await fetch(`${starflaskApiUrl}/agents`, {
-        headers: { Authorization: `Bearer ${starflaskApiKey}` },
+      const res = await fetch("/api/starflask-agents", {
+        credentials: "include",
+        headers: { Accept: "application/json" },
       });
       if (!res.ok) throw new Error(`Failed to fetch agents (${res.status})`);
       return res.json() as Promise<Array<{ id: string; name: string; description?: string }>>;
     },
-    enabled: starflaskApiKey.length > 8,
     retry: false,
   });
 
@@ -106,8 +102,6 @@ export function NewAgent() {
     if (!selectedCompanyId || !name.trim()) return;
     setFormError(null);
 
-    if (!starflaskApiUrl.trim()) { setFormError("Starflask API URL is required"); return; }
-    if (!starflaskApiKey.trim()) { setFormError("Starflask API key is required"); return; }
     if (!starflaskAgentId.trim()) { setFormError("Select a Starflask agent"); return; }
 
     createAgent.mutate({
@@ -117,8 +111,6 @@ export function NewAgent() {
       ...(reportsTo ? { reportsTo } : {}),
       adapterType: "starflask",
       adapterConfig: {
-        starflaskApiUrl: starflaskApiUrl.trim(),
-        starflaskApiKey: starflaskApiKey.trim(),
         starflaskAgentId: starflaskAgentId.trim(),
         ...(personaName.trim() ? { personaName: personaName.trim() } : {}),
       },
@@ -152,40 +144,8 @@ export function NewAgent() {
       </div>
 
       <div className="border border-border">
-        {/* Starflask config */}
+        {/* Agent Selector */}
         <div className="border-b border-border">
-          {/* API URL */}
-          <div className="px-4 py-3 border-b border-border">
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              Starflask API URL
-            </label>
-            <input
-              className={inputClass}
-              placeholder="https://starflask.com/api"
-              value={starflaskApiUrl}
-              onChange={(e) => setStarflaskApiUrl(e.target.value)}
-              autoFocus
-            />
-          </div>
-
-          {/* API Key */}
-          <div className="px-4 py-3 border-b border-border">
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-              API Key
-            </label>
-            <input
-              className={inputClass}
-              type="password"
-              placeholder="sk_..."
-              value={starflaskApiKey}
-              onChange={(e) => setStarflaskApiKey(e.target.value)}
-            />
-            <p className="text-[10px] text-muted-foreground/60 mt-1">
-              Your Starflask user API key. Find it in your Starflask dashboard settings.
-            </p>
-          </div>
-
-          {/* Agent Selector */}
           <div className="px-4 py-3 border-b border-border">
             <label className="block text-xs font-medium text-muted-foreground mb-1.5">
               Starflask Agent
@@ -223,13 +183,9 @@ export function NewAgent() {
               </div>
             ) : starflaskAgentsLoading ? (
               <p className="text-xs text-muted-foreground">Loading agents...</p>
-            ) : starflaskApiKey.length > 8 ? (
-              <p className="text-xs text-muted-foreground">
-                No agents found. Check your API key and URL.
-              </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Enter your API key above to see available agents.
+                No agents found. Check your Starflask account.
               </p>
             )}
           </div>

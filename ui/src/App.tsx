@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./components/OnboardingWizard";
-import { authApi } from "./api/auth";
 import { healthApi } from "./api/health";
 import { Dashboard } from "./pages/Dashboard";
 import { Companies } from "./pages/Companies";
@@ -32,23 +31,6 @@ import { queryKeys } from "./lib/queryKeys";
 import { useCompany } from "./context/CompanyContext";
 import { useDialog } from "./context/DialogContext";
 
-function BootstrapPendingPage() {
-  return (
-    <div className="mx-auto max-w-xl py-10">
-      <div className="rounded-lg border border-border bg-card p-6">
-        <h1 className="text-xl font-semibold">Instance setup required</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          No instance admin exists yet. Run this command in your Starflask environment to generate
-          the first admin invite URL:
-        </p>
-        <pre className="mt-4 overflow-x-auto rounded-md border border-border bg-muted/30 p-3 text-xs">
-{`pnpm paperclipai auth bootstrap-ceo`}
-        </pre>
-      </div>
-    </div>
-  );
-}
-
 function CloudAccessGate() {
   const location = useLocation();
   const healthQuery = useQuery({
@@ -57,15 +39,7 @@ function CloudAccessGate() {
     retry: false,
   });
 
-  const isAuthenticatedMode = healthQuery.data?.deploymentMode === "authenticated";
-  const sessionQuery = useQuery({
-    queryKey: queryKeys.auth.session,
-    queryFn: () => authApi.getSession(),
-    enabled: isAuthenticatedMode,
-    retry: false,
-  });
-
-  if (healthQuery.isLoading || (isAuthenticatedMode && sessionQuery.isLoading)) {
+  if (healthQuery.isLoading) {
     return <div className="mx-auto max-w-xl py-10 text-sm text-muted-foreground">Loading...</div>;
   }
 
@@ -77,11 +51,8 @@ function CloudAccessGate() {
     );
   }
 
-  if (isAuthenticatedMode && healthQuery.data?.bootstrapStatus === "bootstrap_pending") {
-    return <BootstrapPendingPage />;
-  }
-
-  if (isAuthenticatedMode && !sessionQuery.data) {
+  // Gate on Starflask credentials
+  if (!healthQuery.data?.starflaskConfigured) {
     const next = encodeURIComponent(`${location.pathname}${location.search}`);
     return <Navigate to={`/auth?next=${next}`} replace />;
   }
