@@ -32,16 +32,18 @@ export function saveStarflaskCredentials(creds: StarflaskCredentials): void {
 }
 
 export async function validateStarflaskApiKey(apiUrl: string, apiKey: string): Promise<{ valid: boolean; error?: string }> {
+  const url = `${apiUrl}/agents`;
   try {
-    const res = await fetch(`${apiUrl}/agents`, {
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
     if (res.ok) return { valid: true };
+    const body = await res.text().catch(() => "");
     if (res.status === 401 || res.status === 403) {
-      return { valid: false, error: "Invalid API key" };
+      return { valid: false, error: `Invalid API key (${res.status} from ${url})${body ? `: ${body.slice(0, 200)}` : ""}` };
     }
-    return { valid: false, error: `Starflask API returned ${res.status}` };
+    return { valid: false, error: `Starflask API returned ${res.status} from ${url}${body ? `: ${body.slice(0, 200)}` : ""}` };
   } catch (err) {
-    return { valid: false, error: `Could not reach Starflask API: ${err instanceof Error ? err.message : String(err)}` };
+    return { valid: false, error: `Could not reach Starflask API at ${url}: ${err instanceof Error ? err.message : String(err)}` };
   }
 }

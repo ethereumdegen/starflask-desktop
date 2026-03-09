@@ -94,15 +94,17 @@ export async function createApp(
   });
 
   app.post("/api/starflask-config", async (req, res) => {
-    const { apiUrl, apiKey } = req.body as { apiUrl?: string; apiKey?: string };
+    const { apiUrl, apiKey, skipValidation } = req.body as { apiUrl?: string; apiKey?: string; skipValidation?: boolean };
     if (!apiUrl?.trim() || !apiKey?.trim()) {
       res.status(400).json({ error: "apiUrl and apiKey are required" });
       return;
     }
-    const result = await validateStarflaskApiKey(apiUrl.trim(), apiKey.trim());
-    if (!result.valid) {
-      res.status(401).json({ error: result.error ?? "Invalid API key" });
-      return;
+    if (!skipValidation) {
+      const result = await validateStarflaskApiKey(apiUrl.trim(), apiKey.trim());
+      if (!result.valid) {
+        res.status(401).json({ error: result.error ?? "Invalid API key" });
+        return;
+      }
     }
     saveStarflaskCredentials({ apiUrl: apiUrl.trim(), apiKey: apiKey.trim() });
     res.json({ ok: true, apiUrl: apiUrl.trim() });
